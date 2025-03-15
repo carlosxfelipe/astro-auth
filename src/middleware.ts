@@ -1,34 +1,35 @@
 import type { MiddlewareNext } from "astro";
 import { defineMiddleware } from "astro:middleware";
 
+const UNAUTHORIZED_RESPONSE = new Response("Autorização necessária", {
+  status: 401,
+  headers: { "WWW-Authenticate": 'Basic realm="Secure area"' },
+});
+
 const checkLocalAuth = (authHeaders: string, next: MiddlewareNext) => {
-  if (!authHeaders) {
-    return new Response("Autorização necessária", {
-      status: 401,
-      headers: {
-        "WWW-Authenticate": 'Basic realm="Secure area"',
-      },
-    });
-  }
+  if (!authHeaders) return UNAUTHORIZED_RESPONSE;
 
-  const authValue = authHeaders.split(" ").at(-1) ?? "user:pass";
-  console.log("authValue =>", authValue);
-  const decodedValue = atob(authValue).split(":");
-  console.log("decodedValue =>", decodedValue);
+  const base64Credentials = authHeaders.split(" ").at(-1);
+  console.log("Base64 Credentials:", base64Credentials);
 
-  return next();
+  if (!base64Credentials) return UNAUTHORIZED_RESPONSE;
+
+  const decodedCredentials = atob(base64Credentials).split(":");
+  console.log("Decoded Credentials:", decodedCredentials);
+
+  if (decodedCredentials.length !== 2) return UNAUTHORIZED_RESPONSE;
+
+  const [user, password] = decodedCredentials;
+  return user === "admin" && password === "admin"
+    ? next()
+    : UNAUTHORIZED_RESPONSE;
 };
 
-const privateRoutes = ["/protected"];
+const privateRoutes = new Set(["/protected"]);
 
 export const onRequest = defineMiddleware(async ({ url, request }, next) => {
-  // const isPrivateRoute = privateRoutes.some(route => url.pathname.startsWith(route));
+  const isPrivateRoute = privateRoutes.has(url.pathname);
+  const authHeader = request.headers.get("authorization") ?? "";
 
-  const authHeaders = request.headers.get("authorization") ?? "";
-
-  if (privateRoutes.includes(url.pathname)) {
-    return checkLocalAuth(authHeaders, next);
-  }
-
-  return next();
+  return isPrivateRoute ? checkLocalAuth(authHeader, next) : next();
 });
